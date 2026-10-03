@@ -1,4 +1,4 @@
-"use client";
+ReviewStep"use client";
 
 import { useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
@@ -506,7 +506,6 @@ if (!hasAccepted) {
               <Review label="رقم الجوال" value={form.phone} />
               <Review label="البريد الإلكتروني" value={form.email} />
               <Review label="المجال المهني" value={form.field} />
-<Review label="المجال المهني" value={form.field} />
               <Review label="سنوات الخبرة" value={form.years_of_experience} />
               <Review label="ملف السيرة الذاتية" value={cvFile?.name || "-"} />
             </div>
