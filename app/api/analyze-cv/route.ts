@@ -2,6 +2,9 @@ export const dynamic = "force-dynamic";
 
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseServer";
+import { GoogleGenAI } from "@google/genai";
+
+const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
 export async function POST(req: NextRequest) {
   try {
@@ -11,7 +14,7 @@ export async function POST(req: NextRequest) {
       throw new Error("Supabase Admin client is not initialized.");
     }
 
-    // 1) جلب بيانات المرشح والسيرة الذاتية المرفوعة
+    // 1) جلب بيانات المرشح
     const { data: candidate, error } = await supabaseAdmin
       .from("candidates")
       .select("*")
@@ -22,55 +25,40 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "المرشح غير موجود" }, { status: 404 });
     }
 
-    // النص الأساسي للـ CV المخزن أو المهارات المرفوعة
-    const cvContentText = candidate.cv_text || `الاسم: ${candidate.full_name}. المجال المهني: ${candidate.field}. سنوات الخبرة: ${candidate.years_of_experience}.`;
-    const targetedJob = candidate.field || "الوظيفة المتقدم لها";
+    // 2) الذكاء الاصطناعي الفعلي الموثوق بدلاً من العشوائي
+    const cvText = candidate.cv_text || "نص السيرة الذاتية غير متوفر";
+    const targetField = candidate.field || "غير محدد";
 
-    // 2) الاتصال الفعلي والمباشر بـ Google Gemini AI للمطابقة والتحليل الحقيقي
-    const geminiResponse = await fetch(
-      `https://googleapis.com{process.env.GEMINI_API_KEY}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [{
-            parts: [{
-              text: `أنت مسؤول توظيف وأخصائي موارد بشرية خبير. قم بمطابقة السيرة الذاتية التالية بدقة عالية مع المجال الوظيفي المستهدف (${targetedJob}). 
-              يجب أن تعيد لي النتيجة حصراً بصيغة كائن JSON نظيف جداً ومقروء برمجياً، ويحتوي على العناصر التالية باللغة العربية ودون أي نصوص خارج الكائن:
-              {
-                "score": (ضع هنا تقييم رقمي حقيقي ومطابق من 100 بناءً على ملاءمة المهارات)،
-                "summary": "(ضع هنا ملخص ذكي جداً مخصص لهذا المرشح في سطر واحد يوضح توافق خبراته الحقيقية بالملي مع متطلبات العمل وترك التكرار)"،
-                "strengths": ["نقطة قوة حقيقية 1"، "نقطة قوة حقيقية 2"],
-                "concerns": ["نقطة ضعف أو توصية حقيقية لتحسين ملفه"]
-              }
+    const prompt = `
+    أنت خبير محترف في الموارد البشرية والـ ATS، مهمتك مطابقة السيرة الذاتية للمتقدم مع القسم المستهدف بدقة.
+    القسم المستهدف: ${targetField}
+    نص السيرة الذاتية المستخرج: ${cvText}
 
-              نص السيرة الذاتية للمرشح:
-              ${cvContentText}`
-            }]
-          }]
-        })
-      }
-    );
+    شروط الفرز والتحليل الصارمة:
+    1. احسب نسبة مطابقة حقيقية (score) من 100. شرط إلزامي: إذا كان تخصص السيرة الذاتية لا يعود للقسم المستهدف نهائياً (مثل تخصص نظم معلومات مقدم على قسم مالي)، يجب ألا تتجاوز النسبة 30% مهما تطابقت الكلمات المفتاحية العشوائية.
+    2. اكتب ملخصاً ذكياً وموجزاً جداً (summary) في سطر واحد يصف المرشح وخلفيته الحقيقية بدقة تامة دون تكرار عبارات جاهزة.
+    3. استخرج أبرز نقاط القوة (strengths) والمخاوف أو النقص (concerns) كقائمة نصوص.
 
-    if (!geminiResponse.ok) {
-      throw new Error("فشل الاتصال بخادم الذكاء الاصطناعي لجوجل.");
+    يجب أن تكون الإجابة بصيغة JSON حصراً بهذا الهيكل تماماً:
+    {
+      "score": 85,
+      "summary": "الملخص الفعلي باللغة العربية",
+      "strengths": ["نقطة 1", "نقطة 2"],
+      "concerns": ["تخوف 1"]
     }
+    `;
 
-    const aiData = await geminiResponse.json();
-    const rawAiText = aiData.candidates[0].content.parts[0].text.trim();
-    
-    // تنظيف النص المستلم لضمان فكه كـ JSON صافي دون أخطاء
-    const cleanJsonText = rawAiText.replace(/```json/g, "").replace(/```/g, "").trim();
-    const aiParsedResult = JSON.parse(cleanJsonText);
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: prompt,
+      config: {
+        responseMimeType: 'application/json',
+      }
+    });
 
-    const analysis = {
-      score: Number(aiParsedResult.score) || 75,
-      summary: aiParsedResult.summary || "مرشح مهتم بالانضمام لمجتمع الكفاءات.",
-      strengths: aiParsedResult.strengths || ["مؤهلات مناسبة للمجال"],
-      concerns: aiParsedResult.concerns || ["يفضل مراجعة الملف التفصيلي"]
-    };
+    const analysis = JSON.parse(response.text);
 
-    // 3) تحديث بيانات المرشح بنتيجة الـ AI الحقيقية والمطابقة في قاعدة البيانات السحابية
+    // 3) تحديث بيانات المرشح بنتيجة التحليل الفورية في قاعدة البيانات
     const { error: updateError } = await supabaseAdmin
       .from("candidates")
       .update({
@@ -90,7 +78,7 @@ export async function POST(req: NextRequest) {
   } catch (err: any) {
     console.error("analyze-cv error:", err);
     return NextResponse.json(
-      { error: err.message || "حدث خطأ أثناء المطابقة الذكية" },
+      { error: err.message || "حدث خطأ أثناء التحليل الحقيقي" },
       { status: 500 }
     );
   }
