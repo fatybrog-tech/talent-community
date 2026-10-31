@@ -14,7 +14,7 @@ export async function POST(req: NextRequest) {
       throw new Error("Supabase Admin client is not initialized.");
     }
 
-    // 1) جلب بيانات المرشح من قاعدة البيانات
+    // 1) جلب بيانات المرشح ورابط السيرة الذاتية المرفوعة على الفايربيس/سوبابيس ستورج
     const { data: candidate, error } = await supabaseAdmin
       .from("candidates")
       .select("*")
@@ -25,68 +25,80 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "المرشح غير موجود" }, { status: 404 });
     }
 
-    const cvText = candidate.cv_text ? candidate.cv_text.trim() : "";
     const targetField = candidate.field || "غير محدد";
+    const cvFileUrl = candidate.cv_file_url; // رابط الـ PDF المباشر المستقر
 
-    // 🔴 حماية صارمة: إذا كان حقل النص فارغاً أو لم يتم استخراجه بعد، نمنع الـ AI من التخمين العشوائي
-    if (cvText.length < 10) {
+    // 🔴 حماية الحديدية: إذا لم يقم المتقدم برفع ملف السيرة الذاتية بشكل صحيح
+    if (!cvFileUrl) {
       const failAnalysis = {
-        score: 5,
-        summary: "فشل فحص الـ AI: لم يتم استخراج نصوص مقروءة من ملف السيرة الذاتية المرفوع حتى الآن.",
+        score: 0,
+        summary: "فشل التحليل الآلي: لم يتم العثور على رابط ملف السيرة الذاتية المرفوع في قاعدة البيانات.",
         strengths: [],
-        concerns: ["ملف السيرة الذاتية فارغ أو يحتاج لإعادة استخراج النصوص"]
+        concerns: ["ملف السيرة الذاتية مفقود أو تعذر تحميله"]
       };
-
-      await supabaseAdmin.from("candidates").update({
-        ai_score: failAnalysis.score,
-        ai_summary: failAnalysis.summary,
-        ai_strengths: failAnalysis.strengths,
-        ai_concerns: failAnalysis.concerns,
-        status: "analyzed",
-      }).eq("id", candidateId);
-
+      await updateCandidateScore(candidateId, failAnalysis);
       return NextResponse.json({ success: true, analysis: failAnalysis });
     }
 
-    // 2) استدعاء الذكاء الاصطناعي الحقيقي الصارم جداً مع المؤهلات والخبرات
+    // 2) استدعاء الذكاء الاصطناعي (Gemini) ليقوم بتحميل وقراءة الـ PDF والفرز مباشرة
+    // هذه الميزة السحابية تلغي تماماً الحاجة لمكتبات قراءة الـ PDF وتضمن عدم انهيار الموقع
     const prompt = `
-    أنت نظام ATS وخبير موارد بشرية صارم جداً. أمامك وظيفة في مجال: ${targetField}.
-    ونص السيرة الذاتية الفعلي المستخرج من ملف المتقدم هو: ${cvText}.
+    أنت نظام ATS محترف وخبير موارد بشرية صارم للغاية وقاسٍ في التقييم والفرز.
+    المطلوب منك هو تحليل السيرة الذاتية المرفقة ومطابقتها مع المجال المستهدف التالي: [${targetField}].
 
     قواعد الفرز الإلزامية والصارمة لمنع التلاعب:
-    1. تحقق من الخلفية الأكاديمية والمهنية؛ إذا كان ملف المتقدم يظهر أنه يعمل كـ (عامل، أو مهنة غير تقنية، أو لا يمتلك مؤهلاً عالياً، أو تخلو سيرته تماماً من مشاريع وخبرات علوم الحاسب وشبكات الأمن)، يجب تصفير النسبة فوراً بحيث لا تتجاوز 10% إلى 15% كحد أقصى، وتصنيف الحالة (Not Fit) مهما كانت الخانات اليدوية المدخلة.
-    2. صياغة ملخص حقيقي وواقعي باللغة العربية في سطر واحد يوضح العيب الصريح بكل صراحة (مثال: المتقدم يعمل كعامل ولا يمتلك أي مؤهلات أكاديمية أو خبرات تقنية تؤهله للمجال المستهدف).
-    3. استخرج نقاط القوة والمخاوف كقائمة نصوص.
+    1. قم بقراءة ملف الـ PDF المرفق بدقة وفحص الخلفية الأكاديمية والمهنية للمتقدم المكتوبة بداخل الملف.
+    2. إذا ظهر لك من محتوى السيرة الذاتية أن المتقدم يعمل في مهنة حرفية أو ميدانية (مثل عامل، سائق، حارس)، أو لا يمتلك مؤهلاً أكاديمياً عالياً يناسب الوظيفة، أو تخلو سيرته تماماً من المصطلحات والمشاريع والخبرات المرتبطة بالمجال المستهدف المختار [${targetField}]، يجب تصفير النسبة فوراً بحيث لا تتجاوز 5% إلى 15% كحد أقصى، وتصنيف الحالة كـ (Not Fit) مهما كانت البيانات والخيارات الخارجية التي تم إدخالها يدويًا في الموقع.
+    3. اكتب ملخصاً واقعياً وصريحاً باللغة العربية في سطر واحد يذكر سبب الاستبعاد أو التأهيل بكل أمانة ودون مجاملة.
+    4. استخرج نقاط القوة والمخاوف كقائمة نصوص واضحة.
 
-    يجب أن تكون الإجابة بصيغة JSON حصراً بهذا الهيكل تماماً:
+    يجب أن تكون الإجابة بصيغة JSON حصراً بهذا الهيكل البرمجي تماماً ودون أي نصوص إضافية:
     {
-      "score": 10,
-      "summary": "الملخص الصريح باللغة العربية",
-      "strengths": ["نقطة 1"],
-      "concerns": ["تخوف 1"]
+      "score": 0,
+      "summary": "الملخص الصريح باللغة العربية هنا",
+      "strengths": ["نقطة قوة إن وجدت"],
+      "concerns": ["المخاوف الأساسية الصريحة هنا"]
     }
     `;
 
+    // جلب ملف الـ PDF كـ Buffer وتمريره مباشرة لـ Gemini
+    const fileResponse = await fetch(cvFileUrl);
+    const arrayBuffer = await fileResponse.arrayBuffer();
+    const base64File = Buffer.from(arrayBuffer).toString("base64");
+
     const response = await ai.models.generateContent({
       model: 'gemini-2.5-flash',
-      contents: prompt,
+      contents: [
+        {
+          inlineData: {
+            mimeType: "application/pdf",
+            data: base64File
+          }
+        },
+        prompt
+      ],
       config: { responseMimeType: 'application/json' }
     });
 
     const analysis = JSON.parse(response.text);
 
     // 3) تحديث قاعدة البيانات بالتقييم العادل الصارم
-    await supabaseAdmin.from("candidates").update({
-      ai_score: analysis.score,
-      ai_summary: analysis.summary,
-      ai_strengths: analysis.strengths,
-      ai_concerns: analysis.concerns,
-      status: "analyzed",
-    }).eq("id", candidateId);
+    await updateCandidateScore(candidateId, analysis);
 
     return NextResponse.json({ success: true, analysis });
+
   } catch (err: any) {
     console.error("analyze-cv error:", err);
     return NextResponse.json({ error: err.message || "حدث خطأ أثناء التحليل" }, { status: 500 });
   }
+}
+
+async function updateCandidateScore(candidateId: string, analysis: any) {
+  await supabaseAdmin.from("candidates").update({
+    ai_score: analysis.score,
+    ai_summary: analysis.summary,
+    ai_strengths: analysis.strengths,
+    ai_concerns: analysis.concerns,
+    status: "analyzed",
+  }).eq("id", candidateId);
 }
