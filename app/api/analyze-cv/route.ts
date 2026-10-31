@@ -14,7 +14,7 @@ export async function POST(req: NextRequest) {
       throw new Error("Supabase Admin client is not initialized.");
     }
 
-    // 1) جلب بيانات المرشح
+    // 1) جلب بيانات المرشح من قاعدة البيانات
     const { data: candidate, error } = await supabaseAdmin
       .from("candidates")
       .select("*")
@@ -25,25 +25,44 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "المرشح غير موجود" }, { status: 404 });
     }
 
-    // 2) الذكاء الاصطناعي الفعلي الموثوق بدلاً من العشوائي
-    const cvText = candidate.cv_text || "نص السيرة الذاتية غير متوفر";
+    const cvText = candidate.cv_text ? candidate.cv_text.trim() : "";
     const targetField = candidate.field || "غير محدد";
 
-    const prompt = `
-    أنت خبير محترف في الموارد البشرية والـ ATS، مهمتك مطابقة السيرة الذاتية للمتقدم مع القسم المستهدف بدقة.
-    القسم المستهدف: ${targetField}
-    نص السيرة الذاتية المستخرج: ${cvText}
+    // 🔴 حماية صارمة: إذا كان حقل النص فارغاً أو لم يتم استخراجه بعد، نمنع الـ AI من التخمين العشوائي
+    if (cvText.length < 10) {
+      const failAnalysis = {
+        score: 5,
+        summary: "فشل فحص الـ AI: لم يتم استخراج نصوص مقروءة من ملف السيرة الذاتية المرفوع حتى الآن.",
+        strengths: [],
+        concerns: ["ملف السيرة الذاتية فارغ أو يحتاج لإعادة استخراج النصوص"]
+      };
 
-    شروط الفرز والتحليل الصارمة:
-    1. احسب نسبة مطابقة حقيقية (score) من 100. شرط إلزامي: إذا كان تخصص السيرة الذاتية لا يعود للقسم المستهدف نهائياً (مثل تخصص نظم معلومات مقدم على قسم مالي)، يجب ألا تتجاوز النسبة 30% مهما تطابقت الكلمات المفتاحية العشوائية.
-    2. اكتب ملخصاً ذكياً وموجزاً جداً (summary) في سطر واحد يصف المرشح وخلفيته الحقيقية بدقة تامة دون تكرار عبارات جاهزة.
-    3. استخرج أبرز نقاط القوة (strengths) والمخاوف أو النقص (concerns) كقائمة نصوص.
+      await supabaseAdmin.from("candidates").update({
+        ai_score: failAnalysis.score,
+        ai_summary: failAnalysis.summary,
+        ai_strengths: failAnalysis.strengths,
+        ai_concerns: failAnalysis.concerns,
+        status: "analyzed",
+      }).eq("id", candidateId);
+
+      return NextResponse.json({ success: true, analysis: failAnalysis });
+    }
+
+    // 2) استدعاء الذكاء الاصطناعي الحقيقي الصارم جداً مع المؤهلات والخبرات
+    const prompt = `
+    أنت نظام ATS وخبير موارد بشرية صارم جداً. أمامك وظيفة في مجال: ${targetField}.
+    ونص السيرة الذاتية الفعلي المستخرج من ملف المتقدم هو: ${cvText}.
+
+    قواعد الفرز الإلزامية والصارمة لمنع التلاعب:
+    1. تحقق من الخلفية الأكاديمية والمهنية؛ إذا كان ملف المتقدم يظهر أنه يعمل كـ (عامل، أو مهنة غير تقنية، أو لا يمتلك مؤهلاً عالياً، أو تخلو سيرته تماماً من مشاريع وخبرات علوم الحاسب وشبكات الأمن)، يجب تصفير النسبة فوراً بحيث لا تتجاوز 10% إلى 15% كحد أقصى، وتصنيف الحالة (Not Fit) مهما كانت الخانات اليدوية المدخلة.
+    2. صياغة ملخص حقيقي وواقعي باللغة العربية في سطر واحد يوضح العيب الصريح بكل صراحة (مثال: المتقدم يعمل كعامل ولا يمتلك أي مؤهلات أكاديمية أو خبرات تقنية تؤهله للمجال المستهدف).
+    3. استخرج نقاط القوة والمخاوف كقائمة نصوص.
 
     يجب أن تكون الإجابة بصيغة JSON حصراً بهذا الهيكل تماماً:
     {
-      "score": 85,
-      "summary": "الملخص الفعلي باللغة العربية",
-      "strengths": ["نقطة 1", "نقطة 2"],
+      "score": 10,
+      "summary": "الملخص الصريح باللغة العربية",
+      "strengths": ["نقطة 1"],
       "concerns": ["تخوف 1"]
     }
     `;
@@ -51,35 +70,23 @@ export async function POST(req: NextRequest) {
     const response = await ai.models.generateContent({
       model: 'gemini-2.5-flash',
       contents: prompt,
-      config: {
-        responseMimeType: 'application/json',
-      }
+      config: { responseMimeType: 'application/json' }
     });
 
     const analysis = JSON.parse(response.text);
 
-    // 3) تحديث بيانات المرشح بنتيجة التحليل الفورية في قاعدة البيانات
-    const { error: updateError } = await supabaseAdmin
-      .from("candidates")
-      .update({
-        ai_score: analysis.score,
-        ai_summary: analysis.summary,
-        ai_strengths: analysis.strengths,
-        ai_concerns: analysis.concerns,
-        status: "analyzed",
-      })
-      .eq("id", candidateId);
-
-    if (updateError) {
-      throw new Error(`تعذر تحديث جدول البيانات: ${updateError.message}`);
-    }
+    // 3) تحديث قاعدة البيانات بالتقييم العادل الصارم
+    await supabaseAdmin.from("candidates").update({
+      ai_score: analysis.score,
+      ai_summary: analysis.summary,
+      ai_strengths: analysis.strengths,
+      ai_concerns: analysis.concerns,
+      status: "analyzed",
+    }).eq("id", candidateId);
 
     return NextResponse.json({ success: true, analysis });
   } catch (err: any) {
     console.error("analyze-cv error:", err);
-    return NextResponse.json(
-      { error: err.message || "حدث خطأ أثناء التحليل الحقيقي" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: err.message || "حدث خطأ أثناء التحليل" }, { status: 500 });
   }
 }
