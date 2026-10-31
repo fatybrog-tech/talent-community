@@ -1,5 +1,4 @@
-ReviewStep"use client";
-
+'use client';
 import { useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
