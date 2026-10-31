@@ -178,7 +178,6 @@ export default function ApplyForm() {
     }
   }
 
-
   if (!started) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-indigo-50 via-white to-slate-50 p-6" dir="rtl">
@@ -226,35 +225,35 @@ export default function ApplyForm() {
     );
   }
 
-  if (!hasAccepted) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 to-slate-100 p-4 md:p-8" dir="rtl">
-        <div className="max-w-3xl w-full bg-white rounded-2xl shadow-xl border border-slate-200/60 overflow-hidden flex flex-col p-8 space-y-6">
-          <h2 className="text-2xl font-bold text-slate-900 text-center">إقرار الخصوصية وشروط الاستخدام</h2>
-          <div className="bg-slate-50 p-6 rounded-xl border border-slate-200 text-slate-600 text-sm leading-relaxed overflow-y-auto max-h-60 space-y-3">
-            <p>1. أتعهد بأن جميع البيانات والملفات المدخلة صحيحة ومحدثة وتتحمل المسؤولية الكاملة عنها.</p>
-            <p>2. أوافق على معالجة السيرة الذاتية والملفات بواسطة أنظمة الفرز الذكية لتصنيف التخصصات والكفاءة.</p>
-            <p>3. تلتزم المنصة بالحفاظ على سرية معلومات المتقدمين وعدم مشاركتها خارج نطاق لجان التوظيف المختصة.</p>
+  return (
+    <div className="min-h-screen bg-slate-50 py-12 px-4 sm:px-6 lg:px-8" dir="rtl">
+      <div className="max-w-3xl mx-auto bg-white rounded-2xl shadow-sm border border-slate-200/60 overflow-hidden">
+        <div className="bg-slate-900 px-6 py-8 text-center space-y-2">
+          <h2 className="text-2xl font-bold text-white">تقديم طلب الانضمام إلى مجتمع المواهب ({category})</h2>
+          <p className="text-slate-400 text-sm">أكمل الخطوات الثلاث التالية لتسجيل ملفك المهني بنجاح</p>
+        </div>
+
+        <div className="px-6 py-6 border-b border-slate-100 bg-slate-50/50">
+          <div className="flex items-center justify-between max-w-md mx-auto">
+            {STEPS.map((s, idx) => (
+              <div key={s.id} className="flex items-center space-y-1 flex-col sm:flex-row sm:space-y-0 sm:space-x-3 sm:space-x-reverse">
+                <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm ${step >= s.id ? 'bg-indigo-600 text-white' : 'bg-slate-200 text-slate-600'}`}>
+                  {s.id}
+                </div>
+                <span className={`text-xs font-semibold ${step === s.id ? 'text-indigo-600' : 'text-slate-500'}`}>{s.label}</span>
+                {idx < STEPS.length - 1 && <div className="hidden sm:block w-12 h-0.5 bg-slate-200 mx-2" />}
+              </div>
+            ))}
           </div>
-          <div className="flex items-center gap-3 pt-2">
-            <input
-              type="checkbox"
-              id="accept-terms"
-              checked={isChecked}
-              onChange={(e) => setIsChecked(e.target.checked)}
-              className="w-5 h-5 text-indigo-600 border-slate-300 rounded focus:ring-indigo-500 cursor-pointer"
-            />
-            <label htmlFor="accept-terms" className="text-slate-700 font-medium select-none cursor-pointer">
-              قرأت الشروط المذكورة أعلاه وأوافق على تفعيل الفرز الآلي لملفي المهني.
-            </label>
-          </div>
-          <div className="flex justify-end gap-3 pt-4 border-t border-slate-100">
-            <button
-              onClick={() => setCategory("")}
-              className="px-5 py-2.5 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-600 font-medium transition cursor-pointer"
-            >
-              رجوع
-            </button>
-            <button
-              disabled={!isChecked}
-              onClick={() => setHasAccepted(true)}
+        </div>
+
+        <div className="p-8 space-y-6">
+          {error && <div className="p-4 bg-red-50 border border-red-200 text-red-600 rounded-xl text-sm font-medium">{error}</div>}
+
+          {step === 1 && (
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-semibold text-slate-700 mb-1.5">الاسم الكامل الموثق *</label>
+                <input type="text" value={form.full_name} onChange={(e) => updateField("full_name", e.target.value)} className="w-full rounded-xl border border-slate-300 px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600 transition" placeholder="اكتب اسمك الثلاثي أو الرباعي كما هو ببطاقة الهوية" />
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
