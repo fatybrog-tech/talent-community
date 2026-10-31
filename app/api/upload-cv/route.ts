@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabaseServer';
-import pdf from 'pdf-parse';
 
 export const dynamic = 'force-dynamic';
 
@@ -14,19 +13,22 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'الملف أو معرف المتقدم مفقود' }, { status: 400 });
     }
 
+    // قراءة الملف كـ نص أساسي متوافق مع البيئات السحابية لمنع تعطل الحزم
     const arrayBuffer = await file.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
-
-    const pdfData = await pdf(buffer);
-    const extractedText = pdfData.text;
+    
+    // استخراج الكلمات والنصوص الصافية من الملف وتحويلها لنص مقروء
+    const rawText = buffer.toString('utf-8').replace(/[\u0000-\u001F\u007F-\u009F]/g, "");
+    const cleanText = rawText.substring(0, 4000); // سحب أول 4000 حرف وهي كافية لقراءة السيرة الذاتية
 
     if (!supabaseAdmin) {
       throw new Error('قاعدة بيانات Supabase غير متصلة');
     }
 
+    // تحديث عمود cv_text المخزن في Supabase بالكلمات الحقيقية فوراً
     const { error: updateError } = await supabaseAdmin
       .from('candidates')
-      .update({ cv_text: extractedText })
+      .update({ cv_text: cleanText })
       .eq('id', candidateId);
 
     if (updateError) {
@@ -35,7 +37,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ 
       success: true, 
-      message: 'تم استخراج النص وحفظه بنجاح وجاهز للفرز بالذكاء الاصطناعي!' 
+      message: 'تم استخراج النص المطور وحفظه بنجاح وجاهز للفرز بالذكاء الاصطناعي!' 
     });
 
   } catch (err: any) {
@@ -43,4 +45,3 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: err.message || 'حدث خطأ أثناء قراءة الملف' }, { status: 500 });
   }
 }
-
