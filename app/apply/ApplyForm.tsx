@@ -148,7 +148,7 @@ export default function ApplyForm() {
 
       if (insertError) throw insertError;
 
-      // 3) 🌟 خطوة استخراج النص البرمجي الحقيقي من الـ PDF وحفظه في الـ cv_text 🌟
+      // 3) استخراج النص البرمجي الحقيقي من الـ PDF وحفظه في الـ cv_text
       const uploadFormData = new FormData();
       uploadFormData.append("file", cvFile);
       uploadFormData.append("candidateId", customCandidateId);
@@ -162,7 +162,7 @@ export default function ApplyForm() {
         console.warn("استخراج النص واجه مشكلة، سيتم الاعتماد على الفحص البديل");
       }
 
-      // 4) استدعاء تحليل الـAI المتزامن (الذي قمنا بضبط شروطه الصارمة لمنع التلاعب)
+      // 4) استدعاء تحليل الـAI المتزامن المطور
       await fetch("/api/analyze-cv", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -177,6 +177,7 @@ export default function ApplyForm() {
       setSubmitting(false);
     }
   }
+
 
   if (!started) {
     return (
