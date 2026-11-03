@@ -12,9 +12,9 @@ import {
 type Category = "توظيف" | "إعارة";
 
 const STEPS = [
-   { id: 3, label: "المراجعة" },
+  { id: 1, label: "البيانات الأساسية" },
    { id: 2, label: "السيرة الذاتية" },
-   { id: 1, label: "البيانات الأساسية" },
+     { id: 3, label: "المراجعة" },
 ];
 
 export default function ApplyForm() {
