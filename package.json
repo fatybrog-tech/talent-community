@@ -12,11 +12,7 @@
     "next": "14.2.5",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "@supabase/supabase-js": "^2.45.4",
-    "@anthropic-ai/sdk": "^0.27.3",
-    "pdf-parse": "^1.1.1",
-    "@google/genai": "latest",
-    "mammoth": "^1.8.0"
+    "@supabase/supabase-js": "^2.45.4"
   },
   "devDependencies": {
     "autoprefixer": "^10.4.20",

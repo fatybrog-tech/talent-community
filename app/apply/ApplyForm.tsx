@@ -1,27 +1,25 @@
-"use client";
+'use client';
 
 import { useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
-import { supabase } from "@/lib/supabaseClient";
-import {
-  EXPERIENCE_OPTIONS,
-  FIELD_OPTIONS,
-  EMPLOYMENT_STATUS_OPTIONS,
-} from "@/lib/formOptions";
+import { CONSENT_TITLE, CONSENT_INTRO, CONSENT_CLAUSES, CONSENT_CHECKBOX } from "@/lib/consent";
+import { EXPERIENCE_OPTIONS, FIELD_OPTIONS, EMPLOYMENT_STATUS_OPTIONS } from "@/lib/formOptions";
 
 type Category = "توظيف" | "إعارة";
 
 const STEPS = [
   { id: 1, label: "البيانات الأساسية" },
-   { id: 2, label: "السيرة الذاتية" },
-     { id: 3, label: "المراجعة" },
+  { id: 2, label: "السيرة الذاتية" },
+  { id: 3, label: "المراجعة" },
 ];
 
+const inputCls =
+  "w-full px-4 py-3 rounded-xl border border-slate-200 bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500";
+
 export default function ApplyForm() {
-  const [isUpdateMode, setIsUpdateMode] = useState(false);
   const searchParams = useSearchParams();
   const router = useRouter();
-  const initialType = (searchParams.get("type") as Category) || "";
+  const initialType = searchParams.get("type");
 
   const [category, setCategory] = useState<Category | "">(
     initialType === "توظيف" || initialType === "إعارة" ? initialType : ""
@@ -31,21 +29,13 @@ export default function ApplyForm() {
   const [error, setError] = useState("");
 
   const [form, setForm] = useState({
-    full_name: "",
-    phone: "",
-    email: "",
-    linkedin_url: "",
-    current_title: "",
-    current_employer: "",
-    years_of_experience: "",
-    field: "",
-    employment_status: "",
+    full_name: "", phone: "", email: "", linkedin_url: "",
+    current_title: "", current_employer: "",
+    years_of_experience: "", field: "", employment_status: "",
   });
 
   const [hasAccepted, setHasAccepted] = useState(false);
   const [isChecked, setIsChecked] = useState(false);
-  const [started, setStarted] = useState(false);
-
   const [cvFile, setCvFile] = useState<File | null>(null);
 
   function updateField(key: string, value: string) {
@@ -53,15 +43,22 @@ export default function ApplyForm() {
   }
 
   function validateStep1() {
-    if (
-      !form.full_name ||
-      !form.phone ||
-      !form.email ||
-      !form.years_of_experience ||
-      !form.employment_status ||
-      !form.field
-    ) {
+    if (!form.full_name || !form.phone || !form.email ||
+        !form.current_title || !form.current_employer || !form.years_of_experience ||
+        !form.employment_status || !form.field) {
       setError("من فضلك أكمل كل الحقول الإلزامية (المميزة بـ *)");
+      return false;
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) {
+      setError("البريد الإلكتروني غير صالح");
+      return false;
+    }
+    if (form.linkedin_url && !/linkedin\.com/i.test(form.linkedin_url)) {
+      setError("رابط LinkedIn غير صالح (يجب أن يحتوي على linkedin.com)");
+      return false;
+    }
+    if (!/^05\d{8}$/.test(form.phone)) {
+      setError("رقم الجوال يجب أن يكون 10 أرقام ويبدأ بـ 05");
       return false;
     }
     setError("");
@@ -69,21 +66,12 @@ export default function ApplyForm() {
   }
 
   function validateStep2() {
-    if (!cvFile) {
-      setError("من فضلك ارفع السيرة الذاتية");
-      return false;
+    if (!cvFile) { setError("من فضلك ارفع السيرة الذاتية"); return false; }
+    if (!cvFile.name.toLowerCase().endsWith(".pdf")) {
+      setError("الصيغة المدعومة: PDF فقط"); return false;
     }
-    const allowed = [
-      "application/pdf",
-      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-    ];
-    if (!allowed.includes(cvFile.type)) {
-      setError("الصيغة المدعومة: PDF أو DOCX فقط");
-      return false;
-    }
-    if (cvFile.size > 5 * 1024 * 1024) {
-      setError("الحجم الأقصى للملف هو 5 ميجابايت");
-      return false;
+    if (cvFile.size > 4 * 1024 * 1024) {
+      setError("الحجم الأقصى للملف هو 4 ميجابايت"); return false;
     }
     setError("");
     return true;
@@ -94,248 +82,90 @@ export default function ApplyForm() {
     if (step === 2 && !validateStep2()) return;
     setStep((s) => Math.min(s + 1, 3));
   }
-
-  function goBack() {
-    setError("");
-    setStep((s) => Math.max(s - 1, 1));
-  }
+  function goBack() { setError(""); setStep((s) => Math.max(s - 1, 1)); }
 
   async function handleSubmit() {
-    if (!cvFile) return;
+    if (!cvFile || !category || submitting) return;
     setSubmitting(true);
     setError("");
-
     try {
-      // 1) الفحص الذكي: هل الإيميل مسجل مسبقاً؟
-      const { data: checkEmail } = await supabase
-        .from("candidates")
-        .select("email")
-        .eq("email", form.email)
-        .single();
+      const fd = new FormData();
+      Object.entries(form).forEach(([k, v]) => fd.append(k, v));
+      fd.append("category", category);
+      fd.append("consent", "true");
+      fd.append("cv", cvFile);
 
-      const isUpdate = !!checkEmail;
-      setIsUpdateMode(isUpdate);
+      const res = await fetch("/api/apply", { method: "POST", body: fd });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || "حدث خطأ، حاول مرة أخرى");
 
-      // 2) توليد معرّف فريد
-      const customCandidateId = "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(
-        /[xy]/g,
-        function (c) {
-          var r = (Math.random() * 16) | 0,
-            v = c == "x" ? r : (r & 0x3) | 0x8;
-          return v.toString(16);
-        }
-      );
-
-      // 3) رفع ملف السيرة الذاتية إلى Supabase Storage
-      const fileExt = cvFile.name.split(".").pop();
-      const filePath = `${Date.now()}_${Math.random().toString(36).slice(2)}.${fileExt}`;
-
-      const { error: uploadError } = await supabase.storage
-        .from("cvs")
-        .upload(filePath, cvFile);
-
-      if (uploadError) throw uploadError;
-
-      const {
-        data: { publicUrl },
-      } = supabase.storage.from("cvs").getPublicUrl(filePath);
-
-      // 4) إدخال أو تحديث بيانات المرشح (Upsert)
-      const { error: insertError } = await supabase.from("candidates").upsert(
-        {
-          id: customCandidateId,
-          full_name: form.full_name,
-          phone: form.phone,
-          email: form.email,
-          linkedin_url: form.linkedin_url || null,
-          current_title: form.current_title || null,
-          current_employer: form.current_employer || null,
-          years_of_experience: form.years_of_experience,
-          field: form.field,
-          employment_status: form.employment_status,
-          category,
-          cv_file_url: publicUrl,
-          cv_file_path: filePath,
-          status: "pending",
-        },
-        { onConflict: "email" }
-      );
-
-      if (insertError) throw insertError;
-
-      // 5) استدعاء تحليل الـAI بشكل متزامن
-      await fetch("/api/analyze-cv", {
+      // تحليل الـ CV يعمل في الخلفية ولا يعطّل المرشح
+      fetch("/api/analyze-cv", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ candidateId: customCandidateId }),
-      });
+        body: JSON.stringify({ candidateId: json.id }),
+        keepalive: true,
+      }).catch(() => {});
 
-      router.push(`/apply/thank-you?mode=${isUpdate ? "update" : "new"}`);
+      router.push(json.updated ? "/apply/thank-you?mode=update" : "/apply/thank-you");
     } catch (err: any) {
       setError(err.message || "حدث خطأ غير متوقع، حاول مرة أخرى");
-    } finally {
       setSubmitting(false);
     }
   }
 
-  // 1. العرض الأول: صفحة الترحيب
-  if (!started) {
-    return (
-      <div
-        className="min-h-screen flex items-center justify-center bg-gradient-to-br from-indigo-50 via-white to-slate-50 p-6"
-        dir="rtl"
-      >
-        <div className="max-w-2xl w-full bg-white rounded-2xl shadow-xl p-8 border border-slate-100 text-center space-y-6">
-          <div className="text-5xl">✨</div>
-          <h1 className="text-3xl font-bold text-slate-900">
-            مرحباً بك في منصة مجتمع المواهب
-          </h1>
-          <p className="text-slate-600 leading-relaxed max-w-lg mx-auto">
-            منصتنا تهدف إلى بناء مجتمع حيوي للمواهب والكفاءات المهنية المهتمة
-            بالفرص المستقبلية الشاغرة. سجل معلوماتك الآن لتكون ضمن خياراتنا
-            الأولى.
-          </p>
-          <div className="pt-4">
-            <button
-              onClick={() => setStarted(true)}
-              className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-3.5 px-8 rounded-xl transition duration-200 shadow-lg shadow-indigo-100 text-lg cursor-pointer animate-bounce"
-            >
-              ابدأ تسجيل اهتمامك الآن 🚀
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  // 2. العرض الثاني: اختيار المسار
   if (!category) {
     return (
-      <div
-        className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 to-slate-100 p-6"
-        dir="rtl"
-      >
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 to-slate-100 p-6" dir="rtl">
         <div className="max-w-2xl w-full bg-white rounded-2xl shadow-xl p-8 border border-slate-200/60 text-center space-y-6">
-          <h2 className="text-2xl font-bold text-slate-900">
-            الرجاء اختيار المسار المهني المناسب
-          </h2>
-          <p className="text-slate-500">
-            اختر المسار الذي يتوافق مع رغبتك وخبراتك الحالية للمتابعة
-          </p>
-
+          <h2 className="text-2xl font-bold text-slate-900">الرجاء اختيار المسار المناسب</h2>
+          <p className="text-slate-500">اختر المسار الذي يتوافق مع رغبتك للمتابعة (لا يمكن تغييره بعد الاختيار)</p>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-4">
-            <button
-              onClick={() => setCategory("توظيف")}
-              className="p-6 border-2 border-slate-200 hover:border-indigo-600 rounded-2xl text-xl font-bold text-slate-800 bg-slate-50 hover:bg-indigo-50/30 transition duration-200 text-center cursor-pointer"
-            >
-              💼 مسار وظيفة مستقبلية
+            <button onClick={() => setCategory("توظيف")}
+              className="p-6 border-2 border-slate-200 hover:border-indigo-600 rounded-2xl text-xl font-bold text-slate-800 bg-slate-50 hover:bg-indigo-50/30 transition cursor-pointer">
+              💼 مسار التوظيف
             </button>
-            <button
-              onClick={() => setCategory("إعارة")}
-              className="p-6 border-2 border-slate-200 hover:border-indigo-600 rounded-2xl text-xl font-bold text-slate-800 bg-slate-50 hover:bg-indigo-50/30 transition duration-200 text-center cursor-pointer"
-            >
+            <button onClick={() => setCategory("إعارة")}
+              className="p-6 border-2 border-slate-200 hover:border-indigo-600 rounded-2xl text-xl font-bold text-slate-800 bg-slate-50 hover:bg-indigo-50/30 transition cursor-pointer">
               🔄 مسار الإعارة المهنية
             </button>
           </div>
+          <button onClick={() => router.push("/")} className="text-sm text-slate-500 hover:text-slate-700 underline cursor-pointer">العودة إلى الصفحة الرئيسية</button>
         </div>
       </div>
     );
   }
 
-  // 3. العرض الثالث: صفحة الإقرار والخصوصية
   if (!hasAccepted) {
     return (
-      <div
-        className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 to-slate-100 p-4 md:p-8"
-        dir="rtl"
-      >
-        <div className="max-w-3xl w-full bg-white rounded-2xl shadow-xl border border-slate-200/60 overflow-hidden flex flex-col my-6">
-          <div className="bg-slate-900 text-white p-6 text-center border-b border-slate-800">
-            <div className="text-3xl mb-2">⚖️</div>
-            <h2 className="text-xl md:text-2xl font-bold tracking-wide">
-              إقرار التسجيل والخصوصية واستخدام البيانات
-            </h2>
-            <span className="text-xs bg-indigo-600/80 text-white font-medium px-3 py-1 rounded-full mt-2 inline-block">
-              مسار محدد: {category}
-            </span>
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 to-slate-100 p-4 md:p-8" dir="rtl">
+        <div className="max-w-3xl w-full bg-white rounded-2xl shadow-xl border border-slate-200/60 p-8 space-y-6">
+          <h2 className="text-2xl font-bold text-slate-900 text-center">{CONSENT_TITLE}</h2>
+          <div className="bg-slate-50 p-6 rounded-xl border border-slate-200 text-slate-600 text-sm leading-relaxed overflow-y-auto max-h-80 space-y-3">
+            <p className="whitespace-pre-line">{CONSENT_INTRO}</p>
+            {CONSENT_CLAUSES.map((c, i) => (
+              <div key={i}>
+                <p className="font-bold text-slate-800">{i + 1}. {c.title}</p>
+                <p>{c.text}</p>
+              </div>
+            ))}
           </div>
-
-          <div className="p-6 md:p-8 space-y-6 text-slate-700 text-sm md:text-base leading-relaxed overflow-y-auto max-h-[50vh] border-b border-slate-100">
-            <p className="font-medium text-slate-900 bg-slate-50 p-4 rounded-xl border-r-4 border-slate-500">
-              تهدف هذه المنصة إلى بناء مجتمع للمواهب والكفاءات المهنية، بما يتيح
-              التعرف على الخبرات والمهارات والاستفادة منها عند توفر احتياجات أو
-              فرص مستقبلية تتناسب مع الملفات المهنية المسجلة.
-            </p>
-            <p className="font-semibold text-slate-800">
-              ويُعد استكمال التسجيل في المنصة إقرارًا من المستخدم بما يلي:
-            </p>
-
-            <div className="space-y-4 pr-2 text-sm text-slate-600">
-              <p>
-                <strong>1. طبيعة التسجيل:</strong> أقر بأن تسجيلي في المنصة يُعد
-                تسجيلًا للاهتمام بالفرص المهنية المستقبلية، ولا يمثل تقديمًا على
-                وظيفة محددة...
-              </p>
-              <p>
-                <strong>2. صحة البيانات:</strong> أقر بأن البيانات والمعلومات
-                والمستندات التي أقدمها، بما في ذلك السيرة الذاتية صحيحة...
-              </p>
-              <p>
-                <strong>3. استخدام البيانات:</strong> أوافق على جمع ومعالجة
-                البيانات والمعلومات التي أقدمها للأغراض المرتبطة ببناء وإدارة
-                مجتمع المواهب...
-              </p>
-              <p>
-                <strong>4. استخدام تقنيات الذكاء الاصطناعي:</strong> أقر بعلمي
-                بإمكانية استخدام تقنيات الذكاء الاصطناعي للمساعدة في قراءة
-                وتحليل السيرة الذاتية...
-              </p>
-              <p>
-                <strong>5. التواصل:</strong> أوافق على استخدام بيانات التواصل
-                المسجلة، للتواصل معي عند وجود احتياج...
-              </p>
-              <p>
-                <strong>6. السرية وحماية البيانات:</strong> تُعالج البيانات
-                والمستندات المقدمة وفق الضوابط والسياسات المعتمدة لحماية
-                البيانات والخصوصية...
-              </p>
-              <p>
-                <strong>7. تحديث البيانات:</strong> أتحمل مسؤولية المحافظة على
-                تحديث بياناتي وملفي المهني بما يعكس وضعي وخبراتي الحالية.
-              </p>
-            </div>
+          <div className="flex items-center gap-3 pt-2">
+            <input type="checkbox" id="accept-terms" checked={isChecked}
+              onChange={(e) => setIsChecked(e.target.checked)}
+              className="w-5 h-5 text-indigo-600 border-slate-300 rounded cursor-pointer" />
+            <label htmlFor="accept-terms" className="text-slate-700 font-medium select-none cursor-pointer">
+              {CONSENT_CHECKBOX}
+            </label>
           </div>
-
-          <div className="p-6 bg-slate-50 space-y-4">
-            <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
-              <h3 className="font-bold text-slate-900 mb-3 border-b border-slate-100 pb-2">
-                الإقرار
-              </h3>
-              <label className="flex items-start gap-3 cursor-pointer select-none">
-                <input
-                  type="checkbox"
-                  checked={isChecked}
-                  onChange={(e) => setIsChecked(e.target.checked)}
-                  className="mt-1 w-5 h-5 accent-indigo-600 rounded border-slate-300 focus:ring-indigo-500 cursor-pointer"
-                />
-                <span className="text-slate-700 text-sm font-medium leading-relaxed">
-                  أقر بأنني قرأت وفهمت ما ورد أعلاه، وأوافق على تسجيل بياناتي
-                  ومعالجتها واستخدامها للأغراض الموضحة، بما في ذلك تحليل ملفي
-                  المهني باستخدام تقنيات الذكاء الاصطناعي والتواصل معي بشأن
-                  الفرص المهنية المستقبلية المحتملة.
-                </span>
-              </label>
-            </div>
-            <button
-              onClick={() => isChecked && setHasAccepted(true)}
-              disabled={!isChecked}
-              className={`w-full font-semibold py-3.5 px-4 rounded-xl transition-all duration-300 flex items-center justify-center gap-2 text-base shadow-sm ${
-                isChecked
-                  ? "bg-indigo-600 hover:bg-indigo-700 text-white cursor-pointer hover:shadow-md"
-                  : "bg-slate-200 text-slate-400 cursor-not-allowed"
-              }`}
-            >
-              أوافق وأتابع التقديم ⬅️
+          <div className="flex justify-end gap-3 pt-4 border-t border-slate-100">
+            <button onClick={() => setCategory("")}
+              className="px-5 py-2.5 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-600 font-medium transition cursor-pointer">
+              رجوع
+            </button>
+            <button disabled={!isChecked} onClick={() => setHasAccepted(true)}
+              className="px-6 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-semibold transition disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer">
+              أوافق وأتابع
             </button>
           </div>
         </div>
@@ -343,323 +173,110 @@ export default function ApplyForm() {
     );
   }
 
-  // 4. العرض الرابع: استمارة تعبئة البيانات (الفورم والخطوات)
+  const label = (t: string, req = false) => (
+    <label className="block text-sm font-semibold text-slate-700 mb-1.5">
+      {t} {req && <span className="text-rose-500">*</span>}
+    </label>
+  );
+
   return (
-    <div className="max-w-3xl mx-auto py-10 px-4" dir="rtl">
-      {/* تبويب اختيار المسار */}
-      <div className="grid grid-cols-2 gap-3 mb-8">
-        <button
-          onClick={() => setCategory("إعارة")}
-          className={`rounded-md py-3 font-medium transition ${
-            category === "إعارة"
-              ? "bg-primary text-white"
-              : "bg-gray-200 text-gray-600"
-          }`}
-        >
-          مسار الإعارة
-        </button>
-        <button
-          onClick={() => setCategory("توظيف")}
-          className={`rounded-md py-3 font-medium transition ${
-            category === "توظيف"
-              ? "bg-primary text-white"
-              : "bg-gray-200 text-gray-600"
-          }`}
-        >
-          مسار التوظيف
-        </button>
-      </div>
-
-      {/* شريط المراحل المطور (Stepper) */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-8">
-        <div className="flex items-center justify-between relative max-w-xl mx-auto">
-          {/* خط الخلفية */}
-          <div className="absolute top-1/2 left-4 right-4 h-0.5 bg-gray-200 -translate-y-1/2 z-0"></div>
-
-          {/* خط التقدم النشط */}
-          <div
-            className="absolute top-1/2 right-4 h-0.5 bg-primary -translate-y-1/2 z-0 transition-all duration-500 ease-in-out"
-            style={{
-              width:
-                step === 1 ? "0%" : step === 2 ? "50%" : "calc(100% - 2rem)",
-            }}
-          ></div>
-
-          {STEPS.map((s) => {
-            const isCompleted = step > s.id;
-            const isActive = step === s.id;
-
-            return (
-              <div
-                key={s.id}
-                className="flex flex-col items-center gap-2 relative z-10 select-none"
-              >
-                <div
-                  className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm border-2 transition-all duration-500 shadow-sm ${
-                    isCompleted
-                      ? "bg-primary border-primary text-white scale-105"
-                      : isActive
-                      ? "bg-white border-primary text-primary ring-4 ring-primary/10 scale-110"
-                      : "bg-white border-gray-300 text-gray-400"
-                  }`}
-                >
-                  {isCompleted ? (
-                    <svg
-                      className="w-5 h-5"
-                      fill="none"
-                      viewBox="0 0 24 24"
-                      stroke="currentColor"
-                      strokeWidth="3"
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        d="M5 13l4 4L19 7"
-                      />
-                    </svg>
-                  ) : (
-                    s.id
-                  )}
-                </div>
-                <span
-                  className={`text-xs font-bold transition-colors duration-300 ${
-                    isActive
-                      ? "text-primary"
-                      : isCompleted
-                      ? "text-gray-700"
-                      : "text-gray-400"
-                  }`}
-                >
-                  {s.label}
-                </span>
-              </div>
-            );
-          })}
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-4 md:p-8" dir="rtl">
+      <div className="max-w-2xl mx-auto bg-white rounded-2xl shadow-xl border border-slate-200/60 p-6 md:p-8 space-y-6">
+        <div className="flex items-center justify-between">
+          <h2 className="text-xl font-bold text-slate-900">التسجيل في مجتمع المواهب</h2>
+          <span className={`px-3 py-1 rounded-full text-xs font-bold border ${category === "إعارة" ? "bg-amber-50 text-amber-600 border-amber-200" : "bg-emerald-50 text-emerald-600 border-emerald-200"}`}>
+            {category === "إعارة" ? "🔄 مسار الإعارة" : "💼 مسار التوظيف"}
+          </span>
         </div>
-      </div>
 
-      <div className="bg-white rounded-xl shadow-md p-8">
-        {/* الخطوة 1: البيانات الأساسية */}
+        <div className="flex items-center gap-2">
+          {STEPS.map((s) => (
+            <div key={s.id} className="flex-1">
+              <div className={`h-1.5 rounded-full ${step >= s.id ? "bg-indigo-600" : "bg-slate-200"}`} />
+              <div className={`text-xs mt-1 ${step === s.id ? "text-indigo-700 font-bold" : "text-slate-400"}`}>{s.label}</div>
+            </div>
+          ))}
+        </div>
+
         {step === 1 && (
-          <>
-            <h2 className="text-xl font-bold text-primary text-center mb-6">
-              البيانات الأساسية
-            </h2>
-            <div className="grid md:grid-cols-2 gap-5">
-              <Field label="الاسم الكامل" required>
-                <input
-                  className="input"
-                  placeholder="أدخل اسمك الكامل"
-                  value={form.full_name}
-                  onChange={(e) => updateField("full_name", e.target.value)}
-                />
-              </Field>
-              <Field label="المسمى الوظيفي الحالي">
-                <input
-                  className="input"
-                  placeholder="أدخل المسمى الوظيفي الحالي"
-                  value={form.current_title}
-                  onChange={(e) =>
-                    updateField("current_title", e.target.value)
-                  }
-                />
-              </Field>
-              <Field label="رقم الجوال" required>
-                <input
-                  className="input"
-                  placeholder="05xxxxxxxx"
-                  value={form.phone}
-                  onChange={(e) => updateField("phone", e.target.value)}
-                />
-              </Field>
-              <Field label="جهة العمل الحالية">
-                <input
-                  className="input"
-                  placeholder="أدخل جهة العمل الحالية"
-                  value={form.current_employer}
-                  onChange={(e) =>
-                    updateField("current_employer", e.target.value)
-                  }
-                />
-              </Field>
-              <Field label="البريد الإلكتروني" required>
-                <input
-                  className="input"
-                  placeholder="example@email.com"
-                  value={form.email}
-                  onChange={(e) => updateField("email", e.target.value)}
-                />
-              </Field>
-              <Field label="سنوات الخبرة" required>
-                <select
-                  className="input"
-                  value={form.years_of_experience}
-                  onChange={(e) =>
-                    updateField("years_of_experience", e.target.value)
-                  }
-                >
-                  <option value="">اختر عدد سنوات الخبرة</option>
-                  {EXPERIENCE_OPTIONS.map((o) => (
-                    <option key={o} value={o}>
-                      {o}
-                    </option>
-                  ))}
-                </select>
-              </Field>
-
-              {/* الحقل الجديد: الحالة الوظيفية */}
-              <Field label="الحالة الوظيفية" required>
-                <select
-                  className="input"
-                  value={form.employment_status}
-                  onChange={(e) =>
-                    updateField("employment_status", e.target.value)
-                  }
-                >
-                  <option value="">اختر الحالة الوظيفية</option>
-                  {EMPLOYMENT_STATUS_OPTIONS?.map((o) => (
-                    <option key={o} value={o}>
-                      {o}
-                    </option>
-                  ))}
-                </select>
-              </Field>
-
-              <Field label="رابط LinkedIn (اختياري)">
-                <input
-                  className="input"
-                  placeholder="أدخل رابط حسابك هنا"
-                  value={form.linkedin_url}
-                  onChange={(e) =>
-                    updateField("linkedin_url", e.target.value)
-                  }
-                />
-              </Field>
-              <Field label="المجال المهني" required>
-                <select
-                  className="input"
-                  value={form.field}
-                  onChange={(e) => updateField("field", e.target.value)}
-                >
-                  <option value="">اختر المجال المهني</option>
-                  {FIELD_OPTIONS.map((o) => (
-                    <option key={o} value={o}>
-                      {o}
-                    </option>
-                  ))}
-                </select>
-              </Field>
+          <div className="space-y-4">
+            <div>{label("الاسم الكامل", true)}
+              <input className={inputCls} value={form.full_name} onChange={(e) => updateField("full_name", e.target.value)} /></div>
+            <div className="grid md:grid-cols-2 gap-4">
+              <div>{label("رقم الجوال", true)}
+                <input className={inputCls} dir="ltr" inputMode="numeric" maxLength={10} placeholder="05XXXXXXXX" value={form.phone} onChange={(e) => updateField("phone", e.target.value.replace(/\D/g, "").slice(0, 10))} /></div>
+              <div>{label("البريد الإلكتروني", true)}
+                <input className={inputCls} dir="ltr" type="email" value={form.email} onChange={(e) => updateField("email", e.target.value)} /></div>
             </div>
-          </>
+            <div>{label("رابط LinkedIn (اختياري)")}
+              <input className={inputCls} dir="ltr" value={form.linkedin_url} onChange={(e) => updateField("linkedin_url", e.target.value)} /></div>
+            <div className="grid md:grid-cols-2 gap-4">
+              <div>{label("المسمى الوظيفي الحالي", true)}
+                <input className={inputCls} value={form.current_title} onChange={(e) => updateField("current_title", e.target.value)} /></div>
+              <div>{label("جهة العمل الحالية", true)}
+                <input className={inputCls} value={form.current_employer} onChange={(e) => updateField("current_employer", e.target.value)} /></div>
+            </div>
+            <div className="grid md:grid-cols-2 gap-4">
+              <div>{label("المجال", true)}
+                <select className={inputCls} value={form.field} onChange={(e) => updateField("field", e.target.value)}>
+                  <option value="">اختر...</option>
+                  {FIELD_OPTIONS.map((o) => <option key={o}>{o}</option>)}
+                </select></div>
+              <div>{label("سنوات الخبرة", true)}
+                <select className={inputCls} value={form.years_of_experience} onChange={(e) => updateField("years_of_experience", e.target.value)}>
+                  <option value="">اختر...</option>
+                  {EXPERIENCE_OPTIONS.map((o) => <option key={o}>{o}</option>)}
+                </select></div>
+            </div>
+            <div>{label("الوضع الوظيفي", true)}
+              <select className={inputCls} value={form.employment_status} onChange={(e) => updateField("employment_status", e.target.value)}>
+                <option value="">اختر...</option>
+                {EMPLOYMENT_STATUS_OPTIONS.map((o) => <option key={o}>{o}</option>)}
+              </select></div>
+          </div>
         )}
 
-        {/* الخطوة 2: رفع السيرة الذاتية */}
         {step === 2 && (
-          <>
-            <h2 className="text-xl font-bold text-primary text-center mb-6">
-              رفع السيرة الذاتية
-            </h2>
-            <label className="block border-2 border-dashed border-gray-300 rounded-lg p-10 text-center cursor-pointer hover:border-primary transition">
-              <input
-                type="file"
-                accept=".pdf,.docx"
-                className="hidden"
-                onChange={(e) => setCvFile(e.target.files?.[0] || null)}
-              />
-              <div className="text-4xl mb-3">⬆️</div>
-              <p className="font-medium mb-1">
-                {cvFile
-                  ? cvFile.name
-                  : "اسحب ملف السيرة الذاتية وألقه هنا، أو اضغط للتصفح"}
-              </p>
-              <p className="text-xs text-gray-400 mt-2">
-                الصيغ المدعومة: PDF أو DOCX، الحجم الأقصى: 5 ميجابايت.
-                <br />
-                تأكد من تحديث بيانات التواصل داخل الملف.
-              </p>
-            </label>
-          </>
+          <div className="space-y-3">
+            {label("السيرة الذاتية (PDF فقط — حتى 4 ميجابايت)", true)}
+            <input type="file" accept=".pdf,application/pdf"
+              onChange={(e) => setCvFile(e.target.files?.[0] || null)}
+              className="block w-full text-sm text-slate-600 border-2 border-dashed border-slate-300 rounded-xl p-6 cursor-pointer" />
+            {cvFile && <p className="text-sm text-emerald-600">📄 {cvFile.name}</p>}
+          </div>
         )}
 
-        {/* الخطوة 3: المراجعة */}
         {step === 3 && (
-          <>
-            <h2 className="text-xl font-bold text-primary text-center mb-6">
-              مراجعة البيانات
-            </h2>
-            <div className="space-y-2 text-sm text-gray-700">
-              <Review label="المسار" value={category} />
-              <Review label="الاسم الكامل" value={form.full_name} />
-              <Review label="رقم الجوال" value={form.phone} />
-              <Review label="البريد الإلكتروني" value={form.email} />
-              <Review label="المجال المهني" value={form.field} />
-              <Review label="الحالة الوظيفية" value={form.employment_status} />
-              <Review label="سنوات الخبرة" value={form.years_of_experience} />
-              <Review label="ملف السيرة الذاتية" value={cvFile?.name || "-"} />
-            </div>
-          </>
+          <div className="space-y-2 text-sm">
+            {([
+              ["المسار", category], ["الاسم", form.full_name], ["الجوال", form.phone],
+              ["البريد", form.email], ["المسمى الحالي", form.current_title || "—"],
+              ["جهة العمل", form.current_employer || "—"], ["المجال", form.field],
+              ["سنوات الخبرة", form.years_of_experience], ["الوضع الوظيفي", form.employment_status],
+              ["السيرة الذاتية", cvFile?.name || "—"],
+            ] as [string, string][]).map(([k, v]) => (
+              <div key={k} className="flex justify-between border-b border-slate-100 py-2">
+                <span className="text-slate-500">{k}</span><span className="font-semibold text-slate-900">{v}</span>
+              </div>
+            ))}
+          </div>
         )}
 
-        {error && (
-          <p className="text-red-600 text-sm mt-5 text-center">{error}</p>
-        )}
+        {error && <p className="text-rose-600 text-sm bg-rose-50 border border-rose-100 rounded-lg p-3">{error}</p>}
 
-        {/* أزرار التنقل */}
-        <div className="flex justify-between mt-8">
-          <button
-            onClick={goBack}
-            disabled={step === 1}
-            className="px-6 py-2.5 rounded-md bg-gray-300 text-gray-700 disabled:opacity-40"
-          >
-            السابق
-          </button>
-
+        <div className="flex justify-between pt-2">
+          <button onClick={goBack} disabled={step === 1 || submitting}
+            className="px-5 py-2.5 rounded-xl border border-slate-200 text-slate-600 disabled:opacity-30 cursor-pointer">السابق</button>
           {step < 3 ? (
-            <button
-              onClick={goNext}
-              className="px-6 py-2.5 rounded-md bg-primary text-white hover:bg-primary-dark"
-            >
-              التالي
-            </button>
+            <button onClick={goNext} className="px-6 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-semibold cursor-pointer">التالي</button>
           ) : (
-            <button
-              onClick={handleSubmit}
-              disabled={submitting}
-              className="px-6 py-2.5 rounded-md bg-primary text-white hover:bg-primary-dark disabled:opacity-60"
-            >
-              {submitting ? "جاري الإرسال..." : "تأكيد التسجيل"}
+            <button onClick={handleSubmit} disabled={submitting}
+              className="px-6 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-semibold disabled:opacity-50 cursor-pointer">
+              {submitting ? "جاري الإرسال..." : "إرسال الطلب ✅"}
             </button>
           )}
         </div>
       </div>
-    </div>
-  );
-}
-
-function Field({
-  label,
-  required,
-  children,
-}: {
-  label: string;
-  required?: boolean;
-  children: React.ReactNode;
-}) {
-  return (
-    <div>
-      <label className="block text-sm font-medium mb-1.5">
-        {required && <span className="text-red-500">*</span>} {label}
-      </label>
-      {children}
-    </div>
-  );
-}
-
-function Review({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex justify-between border-b border-gray-100 py-2">
-      <span className="text-gray-400">{label}</span>
-      <span className="font-medium">{value}</span>
     </div>
   );
 }
