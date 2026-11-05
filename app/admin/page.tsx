@@ -168,7 +168,7 @@ export default function AdminPage() {
             </div>
           </div>
           <div>
-            <span className="text-xs font-bold text-slate-400 block mb-1">🧾 الوضع الوظيفي:</span>
+            <span className="text-xs font-bold text-slate-400 block mb-1">🧾 نوع الوظيفة الحالية:</span>
             <div className="flex flex-wrap gap-2 bg-slate-50 p-1.5 rounded-xl">
               {emps.map((s) => (
                 <button key={s} onClick={() => setEmpF(s)} className={chip(empF === s, "bg-indigo-600 text-white")}>
@@ -191,7 +191,7 @@ export default function AdminPage() {
                   <tr className="bg-slate-900 text-white">
                     <th className="p-3">المرشح</th>
                     <th className="p-3">المسار</th>
-                    <th className="p-3">المجال / الخبرة / الوضع</th>
+                    <th className="p-3">المجال / الخبرة / نوع الوظيفة</th>
                     <th className="p-3">التواصل</th>
                     <th className="p-3 text-center">التقييم</th>
                     <th className="p-3 text-center">المطابقة</th>
