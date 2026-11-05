@@ -44,6 +44,6 @@ export const FIELD_OPTIONS = [
 ];
 
 export const EMPLOYMENT_STATUS_OPTIONS = [
+  "موظف تأمينات اجتماعية",
   "موظف خدمة مدنية",
-  "موظف تأمينات اجتماعية (قطاع خاص)",
 ];
