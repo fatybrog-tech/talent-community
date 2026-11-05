@@ -20,7 +20,7 @@ const PROMPT = (c: any) => `أنت مساعد لأخصائية موارد بشر
 - سنوات الخبرة: ${c.years_of_experience}
 - المسمى الوظيفي الحالي: ${c.current_title || "غير مذكور"}
 - جهة العمل الحالية: ${c.current_employer || "غير مذكورة"}
-- الوضع الوظيفي: ${c.employment_status || "غير مذكور"}
+- نوع الوظيفة الحالية: ${c.employment_status || "غير مذكور"}
 - المسار: ${c.category}
 
 المطلوب:
