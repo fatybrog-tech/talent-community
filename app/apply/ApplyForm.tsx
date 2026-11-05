@@ -228,7 +228,7 @@ export default function ApplyForm() {
                   {EXPERIENCE_OPTIONS.map((o) => <option key={o}>{o}</option>)}
                 </select></div>
             </div>
-            <div>{label("الوضع الوظيفي", true)}
+            <div>{label("نوع الوظيفة الحالية", true)}
               <select className={inputCls} value={form.employment_status} onChange={(e) => updateField("employment_status", e.target.value)}>
                 <option value="">اختر...</option>
                 {EMPLOYMENT_STATUS_OPTIONS.map((o) => <option key={o}>{o}</option>)}
@@ -252,7 +252,7 @@ export default function ApplyForm() {
               ["المسار", category], ["الاسم", form.full_name], ["الجوال", form.phone],
               ["البريد", form.email], ["المسمى الحالي", form.current_title || "—"],
               ["جهة العمل", form.current_employer || "—"], ["المجال", form.field],
-              ["سنوات الخبرة", form.years_of_experience], ["الوضع الوظيفي", form.employment_status],
+              ["سنوات الخبرة", form.years_of_experience], ["نوع الوظيفة الحالية", form.employment_status],
               ["السيرة الذاتية", cvFile?.name || "—"],
             ] as [string, string][]).map(([k, v]) => (
               <div key={k} className="flex justify-between border-b border-slate-100 py-2">
