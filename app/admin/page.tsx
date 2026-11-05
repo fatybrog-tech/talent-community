@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { supabase } from "@/lib/supabaseClient";
 
 interface Discrepancy { item?: string; form_value?: string; cv_value?: string; note?: string }
@@ -68,6 +68,30 @@ export default function AdminPage() {
   }
   useEffect(() => { if (session) load(); }, [session]);
 
+  // تحليل تلقائي للطلبات المعلّقة (لم يكتمل تحليلها بعد دقيقتين من التقديم)
+  const autoTried = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (!session || candidates.length === 0) return;
+    const pending = candidates.filter(
+      (c) => c.status === "pending" && !autoTried.current.has(c.id) &&
+        Date.now() - new Date(c.created_at).getTime() > 120000
+    );
+    if (pending.length === 0) return;
+    pending.forEach((c) => autoTried.current.add(c.id));
+    (async () => {
+      for (const c of pending) {
+        try {
+          await fetch("/api/analyze-cv", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+            body: JSON.stringify({ candidateId: c.id }),
+          });
+        } catch {}
+      }
+      load();
+    })();
+  }, [candidates, session]);
+
   async function login(e: React.FormEvent) {
     e.preventDefault();
     setError("");
@@ -107,6 +131,19 @@ export default function AdminPage() {
     if (sortBy === "date") return r;
     return [...r].sort((a, b) => (val(b) ?? -1) - (val(a) ?? -1));
   }, [candidates, category, fieldF, empF, search, sortBy]);
+
+  const fieldStats = useMemo(() => {
+    const base = candidates.filter((c) => category === "الكل" || c.category === category);
+    const m = new Map<string, number>();
+    base.forEach((c) => m.set(c.field, (m.get(c.field) || 0) + 1));
+    const total = base.length;
+    return {
+      total,
+      rows: Array.from(m.entries())
+        .map(([field, count]) => ({ field, count, pct: Math.round((count / total) * 1000) / 10 }))
+        .sort((a, b) => b.count - a.count),
+    };
+  }, [candidates, category]);
 
   const chip = (active: boolean, on: string) =>
     `py-1.5 px-3 rounded-lg font-bold text-xs transition cursor-pointer ${active ? on : "text-slate-600 hover:bg-slate-200/50"}`;
@@ -179,6 +216,28 @@ export default function AdminPage() {
           </div>
         </div>
 
+        {fieldStats.total > 0 && (
+          <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100">
+            <div className="flex justify-between items-baseline mb-4">
+              <h2 className="font-bold text-slate-800">📈 نسب المتقدمين حسب المجال</h2>
+              <span className="text-xs text-slate-400">الإجمالي: {fieldStats.total}{category !== "الكل" ? ` (${category})` : ""}</span>
+            </div>
+            <div className="space-y-2.5">
+              {fieldStats.rows.map((r) => (
+                <button key={r.field} onClick={() => setFieldF(fieldF === r.field ? "الكل" : r.field)}
+                  className="w-full flex items-center gap-3 text-right cursor-pointer group" title="اضغطي لتصفية الجدول بهذا المجال">
+                  <span className={`w-48 shrink-0 text-xs font-semibold truncate ${fieldF === r.field ? "text-indigo-700" : "text-slate-700"}`}>{r.field}</span>
+                  <div className="flex-1 h-5 bg-slate-100 rounded-md overflow-hidden">
+                    <div className={`h-full rounded-md transition-all ${fieldF === r.field ? "bg-indigo-600" : "bg-indigo-400 group-hover:bg-indigo-500"}`}
+                      style={{ width: `${Math.max(r.pct, 1.5)}%` }} />
+                  </div>
+                  <span className="w-24 shrink-0 text-xs text-slate-600 tabular-nums">{r.count} ({r.pct}%)</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
         <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
           {loading ? (
             <div className="p-12 text-center text-slate-400 animate-pulse">⏳ جاري التحميل...</div>
@@ -221,14 +280,14 @@ export default function AdminPage() {
                         </td>
                         <td className="p-3 text-center">
                           {c.ai_score != null ? <span className="font-bold px-2.5 py-1 rounded-xl bg-indigo-50 text-indigo-700">{c.ai_score}/100</span>
-                            : <span className="text-xs text-slate-400">{c.status === "failed" ? "فشل" : c.status === "manual_review" ? "—" : "قيد التحليل..."}</span>}
+                            : <span className="text-xs text-slate-400">{c.status === "failed" ? "—" : c.status === "manual_review" ? "—" : "جاري التحليل..."}</span>}
                         </td>
                         <td className="p-3 text-center">
                           {c.ai_match_percentage != null ? <span className="font-bold text-slate-700">{c.ai_match_percentage}%</span> : "—"}
                         </td>
                         <td className="p-3">
                           {c.ai_recommendation && <span className={`px-2.5 py-1 text-xs rounded-full font-bold border ${REC_STYLE[c.ai_recommendation] || "bg-slate-50 border-slate-200"}`}>{c.ai_recommendation}</span>}
-                          {c.status === "failed" && <div className="text-[11px] text-rose-500 mt-1">{c.ai_error}</div>}
+                          {c.status === "failed" && <div className="text-[11px] text-slate-400">تعذر التحليل — اضغطي «تحليل» لإعادة المحاولة</div>}
                         </td>
                         <td className="p-3 text-center space-y-1">
                           <button onClick={() => openCv(c.cv_file_path)} className="block w-full bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-1.5 rounded-lg text-xs font-semibold cursor-pointer">📄 السيرة</button>
@@ -242,6 +301,7 @@ export default function AdminPage() {
                         <tr key={c.id + "d"} className="bg-slate-50">
                           <td colSpan={8} className="p-4 text-xs leading-relaxed space-y-3">
                             <p><b>الملخص:</b> {c.ai_summary || "لا يوجد تحليل بعد"}</p>
+                            {c.status === "failed" && c.ai_error && <p className="text-[11px] text-slate-400">تفاصيل فنية: {c.ai_error}</p>}
                             <div className="grid md:grid-cols-2 gap-4">
                               <div><b className="text-emerald-700">نقاط القوة</b>
                                 <ul className="list-disc pr-5">{(c.ai_strengths || []).map((s, i) => <li key={i}>{s}</li>)}</ul></div>
