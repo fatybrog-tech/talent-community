@@ -26,7 +26,7 @@ export async function POST(req: NextRequest) {
     if (!["توظيف", "إعارة"].includes(category)) return bad("المسار غير صالح");
     if (!EXPERIENCE_OPTIONS.includes(g("years_of_experience"))) return bad("سنوات الخبرة غير صالحة");
     if (!FIELD_OPTIONS.includes(g("field"))) return bad("المجال غير صالح");
-    if (!EMPLOYMENT_STATUS_OPTIONS.includes(g("employment_status"))) return bad("الوضع الوظيفي غير صالح");
+    if (!EMPLOYMENT_STATUS_OPTIONS.includes(g("employment_status"))) return bad("نوع الوظيفة الحالية غير صالح");
     if (g("consent") !== "true") return bad("يجب الموافقة على الإقرار");
     if (!file || typeof file === "string") return bad("ملف السيرة الذاتية مفقود");
     if (file.size > MAX) return bad("حجم الملف يتجاوز 4 ميجابايت");
